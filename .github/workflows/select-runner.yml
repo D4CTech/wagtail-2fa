@@ -1,0 +1,62 @@
+name: Select CI runner
+
+on:
+  workflow_call:
+    outputs:
+      runner:
+        description: Runner label selected for the caller's jobs.
+        value: ${{ jobs.select.outputs.runner }}
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+
+jobs:
+  hosted-probe:
+    name: Probe GitHub-hosted runner
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    outputs:
+      available: ${{ steps.probe.outputs.available }}
+    steps:
+      - name: Confirm runner availability
+        id: probe
+        run: echo "available=true" >> "$GITHUB_OUTPUT"
+
+  select:
+    name: Select runner
+    needs: hosted-probe
+    if: ${{ always() }}
+    runs-on: ${{ needs.hosted-probe.outputs.available == 'true' && 'ubuntu-latest' || 'd4ctech-fallback' }}
+    outputs:
+      runner: ${{ steps.hosted.outputs.runner || steps.fallback.outputs.runner }}
+    steps:
+      - name: Select GitHub-hosted runner
+        id: hosted
+        if: ${{ needs.hosted-probe.outputs.available == 'true' }}
+        run: echo "runner=ubuntu-latest" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout fallback classifier
+        if: ${{ needs.hosted-probe.outputs.available != 'true' }}
+        uses: actions/checkout@v4
+
+      - name: Detect GitHub-hosted billing failure
+        id: detect
+        if: ${{ needs.hosted-probe.outputs.available != 'true' }}
+        uses: ./.github/actions/detect-billing-failure
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.run_id }}
+
+      - name: Select local fallback runner
+        id: fallback
+        if: ${{ steps.detect.outputs.billing_failure == 'true' }}
+        run: echo "runner=d4ctech-fallback" >> "$GITHUB_OUTPUT"
+
+      - name: Reject non-billing probe failure
+        if: ${{ needs.hosted-probe.outputs.available != 'true' && steps.detect.outputs.billing_failure != 'true' }}
+        run: |
+          echo "GitHub-hosted runner probe failed without a billing annotation; local fallback is disabled." >&2
+          exit 1

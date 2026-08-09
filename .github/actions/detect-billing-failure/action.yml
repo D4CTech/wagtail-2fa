@@ -1,0 +1,30 @@
+name: Detect GitHub Actions billing failure
+description: Detects whether a workflow run failed before starting because GitHub-hosted runner billing is unavailable.
+
+inputs:
+  token:
+    description: GitHub token with actions:read and checks:read permissions.
+    required: true
+  repository:
+    description: Repository in OWNER/REPO form.
+    required: true
+  run-id:
+    description: Workflow run ID to inspect.
+    required: true
+
+outputs:
+  billing_failure:
+    description: "true when a GitHub billing or spending-limit annotation is present."
+    value: ${{ steps.detect.outputs.billing_failure }}
+
+runs:
+  using: composite
+  steps:
+    - id: detect
+      name: Inspect workflow job annotations
+      shell: bash
+      env:
+        D4CTECH_GITHUB_TOKEN: ${{ inputs.token }}
+        D4CTECH_REPOSITORY: ${{ inputs.repository }}
+        D4CTECH_RUN_ID: ${{ inputs.run-id }}
+      run: python3 "$GITHUB_ACTION_PATH/detect_billing_failure.py"
